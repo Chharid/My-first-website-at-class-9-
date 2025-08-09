@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Student Records & Notes (Simple HTML App)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans",Arial;}
+    body{max-width:1000px;margin:24px auto;padding:18px;}
+    h1{margin:0 0 10px}
+    .grid{display:grid;grid-template-columns:1fr 380px;gap:18px}
+    .card, .side {background:#f9f9f9;padding:14px;border-radius:8px;border:1px solid #e2e2e2}
+    label{display:block;font-size:13px;margin-top:10px}
+    input, select, textarea{width:100%;padding:8px;margin-top:6px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box}
+    button{padding:8px 12px;border-radius:6px;border:0;background:#2b7cff;color:white;cursor:pointer;margin-top:10px}
+    button.secondary{background:#666}
+    .small{font-size:13px;color:#555}
+    .list{max-height:260px;overflow:auto;margin-top:10px}
+    .record-preview{background:white;padding:12px;border-radius:6px;border:1px dashed #ccc}
+    .file-item{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #eee}
+    .actions{display:flex;gap:8px}
+    .danger{background:#e74c3c}
+    .success{background:#27ae60}
+    pre{white-space:pre-wrap;background:#fff;padding:10px;border-radius:6px;border:1px solid #eee;max-height:220px;overflow:auto}
+    @media(max-width:880px){.grid{grid-template-columns:1fr;}.side{order:2}}
+  </style>
+</head>
+<body>
+  <h1>Student Records & 9th-Class Notes</h1>
+  <p class="small">Fill the form, generate a printable record card, save it in your browser, and upload notes (PDF/images). Saved data stays on this device only.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Student Details</h3>
+      <form id="studentForm">
+        <label>Full Name
+          <input id="name" required placeholder="e.g. Ahmed Khan" />
+        </label>
+        <label>Father's / Guardian's Name
+          <input id="father" placeholder="e.g. Muhammad Ali" />
+        </label>
+        <label>Phone Number
+          <input id="phone" placeholder="e.g. +92 300 1234567" />
+        </label>
+        <label>Class / Grade
+          <input id="grade" placeholder="e.g. 9" />
+        </label>
+        <label>School / Academy
+          <input id="school" placeholder="e.g. SOS Academy" />
+        </label>
+        <label>Address
+          <textarea id="address" rows="2" placeholder="City, Area..."></textarea>
+        </label>
+
+        <div style="display:flex;gap:8px;">
+          <button id="generate">Generate Record</button>
+          <button type="button" id="save" class="secondary">Save</button>
+          <button type="button" id="clear" class="secondary">Clear</button>
+        </div>
+      </form>
+
+      <h3 style="margin-top:16px">Generated Record</h3>
+      <div id="preview" class="record-preview small">No record generated yet.</div>
+
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <button id="exportJson">Export All (JSON)</button>
+        <button id="importJsonBtn" class="secondary">Import JSON</button>
+        <input id="importJson" type="file" accept="application/json" style="display:none" />
+        <button id="printRecord" class="secondary">Print Record</button>
+      </div>
+    </div>
+
+    <div class="side">
+      <h3>Saved Records</h3>
+      <div id="savedList" class="list small"></div>
+
+      <h3 style="margin-top:14px">Upload 9th-Class Notes</h3>
+      <p class="small">You can upload PDF or image notes. Small files only (localStorage limit).</p>
+      <input id="fileInput" type="file" accept=".pdf,image/*" />
+      <div id="fileList" class="list small"></div>
+
+      <div style="margin-top:14px">
+        <button id="clearAll" class="danger">Delete All Data</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Local storage keys
+    const KEY_RECORDS = 'student_records_v1';
+    const KEY_FILES = 'student_notes_v1';
+
+    // Elements
+    const form = document.getElementById('studentForm');
+    const preview = document.getElementById('preview');
+    const generateBtn = document.getElementById('generate');
+    const saveBtn = document.getElementById('save');
+    const clearBtn = document.getElementById('clear');
+    const savedList = document.getElementById('savedList');
+    const fileInput = document.getElementById('fileInput');
+    const fileList = document.getElementById('fileList');
+    const clearAllBtn = document.getElementById('clearAll');
+    const exportJsonBtn = document.getElementById('exportJson');
+    const importJsonBtn = document.getElementById('importJsonBtn');
+    const importJson = document.getElementById('importJson');
+    const printRecordBtn = document.getElementById('printRecord');
+
+    // Helper: read saved arrays
+    function loadRecords(){ return JSON.parse(localStorage.getItem(KEY_RECORDS) || "[]"); }
+    function saveRecords(arr){ localStorage.setItem(KEY_RECORDS, JSON.stringify(arr)); }
+    function loadFiles(){ return JSON.parse(localStorage.getItem(KEY_FILES) || "[]"); }
+    function saveFiles(arr){ localStorage.setItem(KEY_FILES, JSON.stringify(arr)); }
+
+    // Build record from form
+    function getFormData(){
+      return {
+        id: Date.now().toString(),
+        name: document.getElementById('name').value.trim(),
+        father: document.getElementById('father').value.trim(),
+        phone: document.getElementById('phone').value.trim(),
+        grade: document.getElementById('grade').value.trim(),
+        school: document.getElementById('school').value.trim(),
+        address: document.getElementById('address').value.trim(),
+        createdAt: new Date().toISOString()
+      };
+    }
+
+    // Render preview
+    function renderPreview(data){
+      if(!data || !data.name) {
+        preview.innerHTML = '<em>No record generated yet.</em>';
+        return;
+      }
+      preview.innerHTML = `
+        <div style="font-weight:600;font-size:16px;margin-bottom:6px">${escapeHtml(data.name)}</div>
+        <div><strong>Father:</strong> ${escapeHtml(data.father || '—')}</div>
+        <div><strong>Phone:</strong> ${escapeHtml(data.phone || '—')}</div>
+        <div><strong>Class:</strong> ${escapeHtml(data.grade || '—')}</div>
+        <div><strong>School:</strong> ${escapeHtml(data.school || '—')}</div>
+        <div style="margin-top:8px"><strong>Address:</strong><div style="margin-top:4px">${escapeHtml(data.address || '—')}</div></div>
+        <div style="margin-top:8px;font-size:12px;color:#666">Generated: ${new Date(data.createdAt).toLocaleString()}</div>
+      `;
+    }
+
+    // Escape for safety
+    function escapeHtml(s){ return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'); }
+
+    // Generate button
+    generateBtn.addEventListener('click', function(e){
+      e.preventDefault();
+      const data = getFormData();
+      if(!data.name){ alert('Please enter a name.'); return; }
+      renderPreview(data);
+    });
+
+    // Save record to localStorage
+    saveBtn.addEventListener('click', function(e){
+      e.preventDefault();
+      const data = getFormData();
+      if(!data.name){ alert('Please enter a name before saving.'); return; }
+      const arr = loadRecords();
+      arr.unshift(data); // newest first
+      saveRecords(arr);
+      renderSavedList();
+      alert('Saved locally in your browser.');
+    });
+
+    // Clear form
+    clearBtn.addEventListener('click', function(e){
+      e.preventDefault();
+      form.reset();
+      renderPreview(null);
+    });
+
+    // Render saved list
+    function renderSavedList(){
+      const arr = loadRecords();
+      if(!arr.length){ savedList.innerHTML = '<em>No saved records.</em>'; return; }
+      savedList.innerHTML = arr.map(r=>{
+        return `<div style="padding:8px;border-bottom:1px solid #eee">
+          <div style="font-weight:600">${escapeHtml(r.name)}</div>
+          <div class="small" style="color:#555">${escapeHtml(r.grade || '')} • ${new Date(r.createdAt).toLocaleString()}</div>
+          <div class="actions" style="margin-top:6px">
+            <button onclick='loadRecord("${r.id}")' class="secondary">Load</button>
+            <button onclick='deleteRecord("${r.id}")' class="danger">Delete</button>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    // Load a saved record into form/preview
+    window.loadRecord = function(id){
+      const arr = loadRecords();
+      const r = arr.find(x=>x.id===id);
+      if(!r) return alert('Record not found.');
+      document.getElementById('name').value = r.name || '';
+      document.getElementById('father').value = r.father || '';
+      document.getElementById('phone').value = r.phone || '';
+      document.getElementById('grade').value = r.grade || '';
+      document.getElementById('school').value = r.school || '';
+      document.getElementById('address').value = r.address || '';
+      renderPreview(r);
+    }
+
+    // Delete a saved record
+    window.deleteRecord = function(id){
+      if(!confirm('Delete this record?')) return;
+      let arr = loadRecords();
+      arr = arr.filter(x=>x.id!==id);
+      saveRecords(arr);
+      renderSavedList();
+      alert('Deleted.');
+    }
+
+    // Printing current preview (opens print for the preview content)
+    printRecordBtn.addEventListener('click', function(){
+      const arr = loadRecords();
+      const previewHtml = preview.innerHTML;
+      if(previewHtml.includes('No record')) {
+        alert('Generate a record first.');
+        return;
+      }
+      const w = window.open('', '_blank', 'width=700,height=800');
+      w.document.write('<html><head><title>Print Record</title>');
+      w.document.write('<style>body{font-family:Arial;padding:20px} .card{border:1px solid #ccc;padding:12px;border-radius:6px}</style>');
+      w.document.write('</head><body><div class="card">' + previewHtml + '</div></body></html>');
+      w.document.close();
+      w.focus();
+      setTimeout(()=>w.print(), 400);
+    });
+
+    // File uploads: read as DataURL and store small files in localStorage
+    fileInput.addEventListener('change', async (e) => {
+      const f = e.target.files[0];
+      if(!f) return;
+      // Size guard: try to estimate localStorage available; keep files under 2 MB ideally
+      if(f.size > 2 * 1024 * 1024) {
+        if(!confirm('File is larger than 2MB. Storing large files in browser may fail. Continue?')) return;
+      }
+      const reader = new FileReader();
+      reader.onload = function(ev){
+        try {
+          const files = loadFiles();
+          files.unshift({
+            id: Date.now().toString(),
+            name: f.name,
+            size: f.size,
+            type: f.type,
+            dataUrl: ev.target.result,
+            uploadedAt: new Date().toISOString()
+          });
+          // Try saving; catch QUOTA_EXCEEDED
+          try {
+            saveFiles(files);
+            renderFileList();
+            alert('File saved locally in browser.');
+          } catch(err) {
+            console.error(err);
+            alert('Saving failed. File may be too large for browser storage.');
+          }
+        } catch(err){
+          console.error(err);
+          alert('Unexpected error while saving file.');
+        }
+      };
+      reader.readAsDataURL(f);
+      // reset input
+      e.target.value = '';
+    });
+
+    // Render file list
+    function renderFileList(){
+      const arr = loadFiles();
+      if(!arr.length){ fileList.innerHTML = '<em>No uploaded notes.</em>'; return; }
+      fileList.innerHTML = arr.map(f=>{
+        const niceSize = (f.size/1024).toFixed(1) + ' KB';
+        return `<div class="file-item">
+          <div>
+            <div style="font-weight:600">${escapeHtml(f.name)}</div>
+            <div class="small" style="color:#555">${niceSize} • ${new Date(f.uploadedAt).toLocaleString()}</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <a href="${f.dataUrl}" target="_blank" download="${escapeHtml(f.name)}"><button class="secondary">View / Download</button></a>
+            <button onclick='deleteFile("${f.id}")' class="danger">Delete</button>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    // Delete file
+    window.deleteFile = function(id){
+      if(!confirm('Delete this note file?')) return;
+      let arr = loadFiles();
+      arr = arr.filter(x=>x.id !== id);
+      saveFiles(arr);
+      renderFileList();
+    }
+
+    // Clear all data
+    clearAllBtn.addEventListener('click', function(){
+      if(!confirm('Delete ALL saved records and notes from this browser? This cannot be undone.')) return;
+      localStorage.removeItem(KEY_RECORDS);
+      localStorage.removeItem(KEY_FILES);
+      renderSavedList();
+      renderFileList();
+      alert('All local data deleted.');
+    });
+
+    // Export all as JSON
+    exportJsonBtn.addEventListener('click', function(){
+      const data = {
+        records: loadRecords(),
+        notes: loadFiles(),
+        exportedAt: new Date().toISOString()
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'student_data_export_'+(new Date().toISOString().slice(0,10))+'.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+
+    // Import JSON
+    importJsonBtn.addEventListener('click', ()=>importJson.click());
+    importJson.addEventListener('change', function(e){
+      const f = e.target.files[0];
+      if(!f) return;
+      const r = new FileReader();
+      r.onload = function(ev){
+        try {
+          const data = JSON.parse(ev.target.result);
+          if(data.records) saveRecords(data.records);
+          if(data.notes) saveFiles(data.notes);
+          renderSavedList();
+          renderFileList();
+          alert('Imported data (records and notes).');
+        } catch(err){
+          console.error(err);
+          alert('Invalid JSON file.');
+        }
+      };
+      r.readAsText(f);
+      e.target.value = '';
+    });
+
+    // Initialization
+    renderSavedList();
+    renderFileList();
+    renderPreview(null);
+
+    // Try-catch wrapper for load on older browsers
+    try {
+      // nothing to do
+    } catch(e){ console.warn(e); }
+  </script>
+</body>
+    </html>
+  
